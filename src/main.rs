@@ -26,11 +26,9 @@ use std::{
 use anyhow::{Context, anyhow, bail};
 use clap::{ArgAction, Parser};
 use ignore::{WalkBuilder, WalkState};
-use log::{error, info, warn};
+use log::{LevelFilter, debug, error, info, warn};
 
-const LONG_VERSION: &str = concat!(
-    env!("CARGO_PKG_NAME"),
-    " ",
+const VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION"),
     " (",
     env!("GIT_HASH", "unknown"),
@@ -47,9 +45,8 @@ const LONG_VERSION: &str = concat!(
 #[derive(Debug, Parser)]
 #[command(
     name = "imgst",
-    about = "Image sanitization",
-    version = env!("CARGO_PKG_VERSION"),
-    long_version = LONG_VERSION,
+    about = "Simple Image metadata cleaner",
+    version = VERSION,
     author,
     propagate_version = true
 )]
@@ -78,9 +75,9 @@ struct Args {
 }
 
 fn main() -> anyhow::Result<()> {
-    env_logger::init();
-
     let args = Args::parse();
+
+    init_logger(args.verbose);
 
     if !args.input.is_dir() {
         bail!("input path '{}' is not directory", args.input.display());
@@ -208,8 +205,35 @@ fn process_img(
     let dst = output_root.join(rel_path);
 
     if dry_run {
-        info!("dry-run: would clean '{}' -> '{}'", src.display(), dst.display());
+        debug!(
+            "dry-run: would clean '{}' -> '{}'",
+            src.display(),
+            dst.display()
+        );
     }
 
     Ok(())
+}
+
+fn init_logger(verbose: u8) {
+    use std::io::Write;
+
+    if std::env::var_os("RUST_LOG").is_some() {
+        env_logger::builder()
+            .format(|buf, record| {
+                writeln!(buf, "[{}]: {}", record.level(), record.args())
+            })
+            .init();
+        return;
+    }
+
+    let level =
+        if verbose > 0 { LevelFilter::Debug } else { LevelFilter::Info };
+
+    env_logger::builder()
+        .filter(None, level)
+        .format(|buf, record| {
+            writeln!(buf, "[{}]: {}", record.level(), record.args())
+        })
+        .init();
 }
