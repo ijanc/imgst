@@ -210,7 +210,27 @@ fn process_img(
             src.display(),
             dst.display()
         );
+        return Ok(());
     }
+
+    if let Some(parent) = dst.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!("failed to create parent dir '{}'", parent.display())
+        })?;
+    }
+
+    let data = fs::read(src)
+        .with_context(|| format!("failed to read '{}'", src.display()))?;
+
+    let cleaned =
+        web_image_meta::jpeg::clean_metadata(&data).with_context(|| {
+            format!("failed to clean metadata for '{}'", src.display())
+        })?;
+
+    fs::write(&dst, &cleaned)
+        .with_context(|| format!("failed to write '{}'", dst.display()))?;
+
+    debug!("cleaned '{}' -> '{}'", src.display(), dst.display());
 
     Ok(())
 }
