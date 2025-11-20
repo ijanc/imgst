@@ -55,11 +55,11 @@ struct Args {
     #[arg(short, long)]
     input: PathBuf,
 
-    /// Ouput directoryu where cleaned images will be written
+    /// Output directory where cleaned images will be written
     #[arg(short, long)]
     output: PathBuf,
 
-    /// Number of worker threads for directory walking
+    /// Number of worker threads for directory walking (0 = auto)
     #[arg(long, default_value_t = 0)]
     num_threads: usize,
 
@@ -90,7 +90,7 @@ fn main() -> anyhow::Result<()> {
     } else if !args.output.is_dir() {
         bail!(
             "output path '{}' exists but is not directory",
-            args.input.display()
+            args.output.display()
         );
     }
 
@@ -197,9 +197,9 @@ fn process_img(
 ) -> anyhow::Result<()> {
     let rel_path = match src.strip_prefix(input_root) {
         Ok(rel) => rel.to_path_buf(),
-        Err(_) => {
-            src.file_name().map(PathBuf::from).ok_or_else(|| anyhow!(""))?
-        }
+        Err(_) => src.file_name().map(PathBuf::from).ok_or_else(|| {
+            anyhow!("could not compute relative path for '{}'", src.display())
+        })?,
     };
 
     let dst = output_root.join(rel_path);
