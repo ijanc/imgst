@@ -67,6 +67,10 @@ struct Args {
     #[arg(long)]
     dry_run: bool,
 
+    /// Show size statistics after finishing
+    #[arg(long)]
+    stats: bool,
+
     /// Increase verbosity (use -v, -vv, ...).
     ///
     /// When no RUST_LOG is set, a single -v switches the log level to DEBUG.
@@ -110,6 +114,10 @@ fn main() -> anyhow::Result<()> {
     let skipped = Arc::new(AtomicUsize::new(0));
     let failed = Arc::new(AtomicUsize::new(0));
 
+    // stats
+    let total_before = Arc::new(AtomicUsize::new(0));
+    let total_after = Arc::new(AtomicUsize::new(0));
+
     let walker = WalkBuilder::new(&*input_root)
         .hidden(false)
         .follow_links(false)
@@ -123,6 +131,8 @@ fn main() -> anyhow::Result<()> {
         let processed = Arc::clone(&processed);
         let skipped = Arc::clone(&skipped);
         let failed = Arc::clone(&failed);
+        let total_before = Arc::clone(&total_before);
+        let total_after = Arc::clone(&total_after);
 
         Box::new(move |result| {
             match result {
@@ -151,8 +161,14 @@ fn main() -> anyhow::Result<()> {
                         return WalkState::Continue;
                     }
 
-                    match process_img(&input_root, &output_root, path, dry_run)
-                    {
+                    match process_img(
+                        &input_root,
+                        &output_root,
+                        path,
+                        dry_run,
+                        &total_before,
+                        &total_after,
+                    ) {
                         Ok(()) => {
                             processed.fetch_add(1, Ordering::Relaxed);
                         }
@@ -182,6 +198,30 @@ fn main() -> anyhow::Result<()> {
         failed.load(Ordering::Relaxed),
     );
 
+    if total_before.load(Ordering::Relaxed) > 0 && args.stats {
+        let before = total_before.load(Ordering::Relaxed) as f64;
+        let after = total_after.load(Ordering::Relaxed) as f64;
+
+        let saved = before - after;
+        let saved_pct =
+            if before > 0.0 { (saved / before) * 100.0 } else { 0.0 };
+
+        println!();
+        println!("Stats:");
+        println!("Source total: {:.2} MB", before / (1024.0 * 1024.0));
+        if !dry_run {
+            println!("Clean total: {:.2} MB", after / (1024.0 * 1024.0));
+            println!(
+                "Saved: {:.2} MB ({:.1}%)",
+                saved / (1024.0 * 1024.0),
+                saved_pct
+            );
+        } else {
+            println!("Clean total: (DRY-RUN) skipped");
+        }
+        println!();
+    }
+
     if failed.load(Ordering::Relaxed) > 0 {
         warn!("some files failed to process");
     }
@@ -194,6 +234,8 @@ fn process_img(
     output_root: &Path,
     src: &Path,
     dry_run: bool,
+    total_before: &AtomicUsize,
+    total_after: &AtomicUsize,
 ) -> anyhow::Result<()> {
     let rel_path = match src.strip_prefix(input_root) {
         Ok(rel) => rel.to_path_buf(),
@@ -222,6 +264,11 @@ fn process_img(
     let data = fs::read(src)
         .with_context(|| format!("failed to read '{}'", src.display()))?;
 
+    let src_metadata = fs::metadata(src)
+        .with_context(|| format!("failed to stat '{}'", src.display()))?;
+
+    total_before.fetch_add(src_metadata.len() as usize, Ordering::Relaxed);
+
     let cleaned =
         web_image_meta::jpeg::clean_metadata(&data).with_context(|| {
             format!("failed to clean metadata for '{}'", src.display())
@@ -229,6 +276,8 @@ fn process_img(
 
     fs::write(&dst, &cleaned)
         .with_context(|| format!("failed to write '{}'", dst.display()))?;
+
+    total_after.fetch_add(cleaned.len(), Ordering::Relaxed);
 
     debug!("cleaned '{}' -> '{}'", src.display(), dst.display());
 
