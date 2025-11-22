@@ -63,6 +63,10 @@ cargo --version
 
 Clone the repository and build the binary:
 
+- **Official**: ssh://anon@ijanc.org/imgst
+- Mirror Sourcehut: git@git.sr.ht:~ijanc/imgst
+- Mirror Github: git@github.com:ijanc/imgst.git
+
 ```sh
 git clone ssh://anon@ijanc.org/imgst
 cd imgst
